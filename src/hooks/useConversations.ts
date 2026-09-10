@@ -97,22 +97,31 @@ export function useConversations(currentUser: Profile | null) {
 
     fetchConversations(true);
 
+    // Coalesce bursts of realtime events into a single refetch — every message
+    // insert would otherwise trigger a full list rebuild plus an N+1 query.
+    let refetchTimer: ReturnType<typeof setTimeout> | undefined;
+    const scheduleRefetch = () => {
+      clearTimeout(refetchTimer);
+      refetchTimer = setTimeout(() => fetchConversations(false), 400);
+    };
+
     // Realtime subscriptions for messages and friendships
     const channel = supabase
       .channel("public:conversations:updates")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "messages" },
-        () => fetchConversations(false)
+        scheduleRefetch
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "friendships" },
-        () => fetchConversations(false)
+        scheduleRefetch
       )
       .subscribe();
 
     return () => {
+      clearTimeout(refetchTimer);
       supabase.removeChannel(channel);
     };
   }, [currentUser?.id]);

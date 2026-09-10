@@ -69,6 +69,7 @@ function ChatPage() {
   const {
     messages,
     loading: messagesLoading,
+    error: messagesError,
     sendMessage,
     clearHistory,
   } = useMessages(currentUser, selectedUser);
@@ -103,6 +104,11 @@ function ChatPage() {
           onSearchChange={setSearchQuery}
           onClearHistory={clearHistory}
         />
+        {messagesError && (
+          <div className="chat-error" role="alert">
+            {messagesError}
+          </div>
+        )}
         <Chat
           messages={filteredMessages}
           loading={messagesLoading}

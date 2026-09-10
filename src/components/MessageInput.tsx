@@ -2,30 +2,41 @@
 import { useState, useRef, useEffect, type KeyboardEvent } from "react";
 
 interface MessageInputProps {
-  onSend: (text: string) => void;
+  onSend: (text: string) => void | Promise<void>;
   disabled?: boolean;
 }
 
 const EMOJI_LIST = ["😃", "💜", "🎉", "🥰", "🙌", "❤️", "👍", "🔥", "✨", "😊"];
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024; // 2 MB — images are inlined as data URLs
 
 function MessageInput({ onSend, disabled = false }: MessageInputProps) {
   const [text, setText] = useState("");
   const [showEmojis, setShowEmojis] = useState(false);
+  const [sending, setSending] = useState(false);
   const emojiRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const trimmed = text.trim();
-    if (!trimmed) return;
-    onSend(trimmed);
+    if (!trimmed || sending || disabled) return;
+
     setText("");
     setShowEmojis(false);
+    setSending(true);
+    try {
+      await onSend(trimmed);
+    } catch {
+      // Restore the draft so a failed send doesn't lose the message.
+      setText(trimmed);
+    } finally {
+      setSending(false);
+    }
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      void handleSend();
     }
   };
 
@@ -46,26 +57,33 @@ function MessageInput({ onSend, disabled = false }: MessageInputProps) {
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      window.alert("Only image attachments are supported right now.");
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      window.alert("That image is too large — please choose one under 2 MB.");
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = () => {
-      const result = reader.result as string;
-      if (file.type.startsWith("image/")) {
-        onSend(`[Image: ${file.name}] (${result})`);
-      } else {
-        onSend(`[Attachment: ${file.name}]`);
-      }
+      void onSend(`[Image: ${file.name}] (${reader.result as string})`);
     };
     reader.readAsDataURL(file);
-    e.target.value = "";
   };
+
+  const canSend = !disabled && !sending && text.trim().length > 0;
 
   return (
     <div className="message-input-bar">
       {/* Hidden file input for attachment / plus button */}
       <input
         type="file"
+        accept="image/*"
         ref={fileInputRef}
         onChange={handleFileSelect}
         style={{ display: "none" }}
@@ -92,6 +110,7 @@ function MessageInput({ onSend, disabled = false }: MessageInputProps) {
           {EMOJI_LIST.map((emoji) => (
             <button
               key={emoji}
+              type="button"
               onClick={() => addEmoji(emoji)}
               style={{
                 fontSize: "18px",
@@ -108,9 +127,11 @@ function MessageInput({ onSend, disabled = false }: MessageInputProps) {
 
       <button
         className="round-button round-button--plus"
+        type="button"
         aria-label="Add attachment"
         onClick={() => fileInputRef.current?.click()}
-        title="Add image/file"
+        disabled={disabled}
+        title="Add image"
       >
         <svg
           width="18"
@@ -136,12 +157,13 @@ function MessageInput({ onSend, disabled = false }: MessageInputProps) {
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={handleKeyDown}
-        disabled={disabled}
+        disabled={disabled || sending}
         autoComplete="off"
       />
 
       <button
         className="icon-button"
+        type="button"
         aria-label="Emoji"
         onClick={() => setShowEmojis(!showEmojis)}
         title="Insert emoji"
@@ -153,13 +175,7 @@ function MessageInput({ onSend, disabled = false }: MessageInputProps) {
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
         >
-          <circle
-            cx="12"
-            cy="12"
-            r="9"
-            stroke="currentColor"
-            strokeWidth="1.8"
-          />
+          <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8" />
           <circle cx="9" cy="10" r="1" fill="currentColor" />
           <circle cx="15" cy="10" r="1" fill="currentColor" />
           <path
@@ -173,9 +189,11 @@ function MessageInput({ onSend, disabled = false }: MessageInputProps) {
 
       <button
         className="icon-button"
-        aria-label="Attach file"
+        type="button"
+        aria-label="Attach image"
         onClick={() => fileInputRef.current?.click()}
-        title="Attach file"
+        disabled={disabled}
+        title="Attach image"
       >
         <svg
           width="20"
@@ -196,9 +214,10 @@ function MessageInput({ onSend, disabled = false }: MessageInputProps) {
 
       <button
         className="round-button round-button--send"
+        type="button"
         aria-label="Send message"
         onClick={handleSend}
-        disabled={disabled}
+        disabled={!canSend}
       >
         <svg
           width="18"
