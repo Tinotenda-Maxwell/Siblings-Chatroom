@@ -1,5 +1,5 @@
 // src/pages/ChatPage.tsx
-import { useEffect, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { useMessages } from "../hooks/useMessages";
@@ -56,7 +56,8 @@ function ChatPage() {
   }, [navigate]);
 
   // 2. Fetch conversations list from Supabase profiles database
-  const { conversations, loading: convsLoading } = useConversations(currentUser);
+  const { conversations, loading: convsLoading } =
+    useConversations(currentUser);
 
   // 3. Auto-select first contact if none selected yet
   useEffect(() => {
@@ -74,12 +75,17 @@ function ChatPage() {
     clearHistory,
   } = useMessages(currentUser, selectedUser);
 
-  // Filter messages by header search query if active
-  const filteredMessages = searchQuery.trim()
-    ? messages.filter((m) =>
-        m.message.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : messages;
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+
+  const filteredMessages = useMemo(
+    () =>
+      deferredSearchQuery.trim()
+        ? messages.filter((m) =>
+            m.message.toLowerCase().includes(deferredSearchQuery.toLowerCase()),
+          )
+        : messages,
+    [messages, deferredSearchQuery],
+  );
 
   if (profileLoading || convsLoading) {
     return (

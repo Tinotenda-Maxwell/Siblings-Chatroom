@@ -9,85 +9,129 @@ export interface ConversationItem {
   lastMessage?: Message;
 }
 
+function mapProfile(row: Record<string, unknown>): Profile {
+  return {
+    id: row.id as string,
+    username: row.username as string,
+    displayName: row.display_name as string,
+    avatarUrl: (row.avatar_url as string | null) ?? null,
+    createdAt: row.created_at as string,
+  };
+}
+
+function mapMessage(row: Record<string, unknown>): Message {
+  return {
+    id: row.id as string,
+    senderId: row.sender_id as string,
+    receiverId: row.receiver_id as string,
+    message: row.message as string,
+    createdAt: row.created_at as string,
+  };
+}
+
 export function useConversations(currentUser: Profile | null) {
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!currentUser) {
+      setConversations([]);
       setLoading(false);
       return;
     }
+
+    let active = true;
 
     const fetchConversations = async (isInitial = false) => {
       if (isInitial) {
         setLoading(true);
       }
 
-      // 1. Fetch accepted friendship partner IDs
       const { data: friendships } = await supabase
         .from("friendships")
         .select("sender_id, receiver_id")
         .eq("status", "accepted")
         .or(`sender_id.eq.${currentUser.id},receiver_id.eq.${currentUser.id}`);
 
+      if (!active) return;
+
       const friendIds = new Set<string>();
       if (friendships) {
-        friendships.forEach((f) => {
-          if (f.sender_id !== currentUser.id) friendIds.add(f.sender_id);
-          if (f.receiver_id !== currentUser.id) friendIds.add(f.receiver_id);
+        friendships.forEach((friendship) => {
+          if (friendship.sender_id !== currentUser.id) {
+            friendIds.add(friendship.sender_id);
+          }
+          if (friendship.receiver_id !== currentUser.id) {
+            friendIds.add(friendship.receiver_id);
+          }
         });
       }
 
-      // 2. Fetch profiles of friends (or all profiles if no friendships table exist yet for backward compatibility)
-      let query = supabase.from("profiles").select("*").neq("id", currentUser.id);
-
-      if (friendIds.size > 0) {
-        query = query.in("id", Array.from(friendIds));
-      }
-
-      const { data: profilesData, error: profilesError } = await query;
-
-      if (profilesError || !profilesData) {
+      if (friendIds.size === 0) {
+        setConversations([]);
         if (isInitial) setLoading(false);
         return;
       }
 
-      const profiles: Profile[] = profilesData.map((row) => ({
-        id: row.id as string,
-        username: row.username as string,
-        displayName: row.display_name as string,
-        avatarUrl: row.avatar_url as string | null,
-        createdAt: row.created_at as string,
-      }));
+      const friendIdList = Array.from(friendIds);
 
-      // 3. Fetch last message for each profile
-      const items: ConversationItem[] = await Promise.all(
-        profiles.map(async (profile) => {
-          const { data: msgData } = await supabase
-            .from("messages")
-            .select("*")
-            .or(
-              `and(sender_id.eq.${currentUser.id},receiver_id.eq.${profile.id}),` +
-                `and(sender_id.eq.${profile.id},receiver_id.eq.${currentUser.id})`
-            )
-            .order("created_at", { ascending: false })
-            .limit(1);
+      const [profilesResult, messagesResult] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("*")
+          .neq("id", currentUser.id)
+          .in("id", friendIdList),
+        supabase
+          .from("messages")
+          .select("*")
+          .or(
+            `and(sender_id.eq.${currentUser.id},receiver_id.in.(${friendIdList.join(",")})),` +
+              `and(sender_id.in.(${friendIdList.join(",")}),receiver_id.eq.${currentUser.id})`
+          )
+          .order("created_at", { ascending: false }),
+      ]);
 
-          const lastMsg: Message | undefined =
-            msgData && msgData.length > 0
-              ? {
-                  id: msgData[0].id as string,
-                  senderId: msgData[0].sender_id as string,
-                  receiverId: msgData[0].receiver_id as string,
-                  message: msgData[0].message as string,
-                  createdAt: msgData[0].created_at as string,
-                }
-              : undefined;
+      if (!active) return;
 
-          return { profile, lastMessage: lastMsg };
-        })
-      );
+      if (profilesResult.error || !profilesResult.data) {
+        if (isInitial) setLoading(false);
+        return;
+      }
+
+      const profiles = profilesResult.data.map(mapProfile);
+      const latestMessagesByPeer = new Map<string, Message>();
+
+      for (const row of messagesResult.data ?? []) {
+        const message = mapMessage(row);
+        const peerId =
+          message.senderId === currentUser.id
+            ? message.receiverId
+            : message.senderId;
+        const currentLatest = latestMessagesByPeer.get(peerId);
+
+        if (
+          !currentLatest ||
+          new Date(message.createdAt).getTime() >
+            new Date(currentLatest.createdAt).getTime()
+        ) {
+          latestMessagesByPeer.set(peerId, message);
+        }
+      }
+
+      const items = profiles
+        .map((profile) => ({
+          profile,
+          lastMessage: latestMessagesByPeer.get(profile.id),
+        }))
+        .sort((a, b) => {
+          const aTime = a.lastMessage
+            ? new Date(a.lastMessage.createdAt).getTime()
+            : 0;
+          const bTime = b.lastMessage
+            ? new Date(b.lastMessage.createdAt).getTime()
+            : 0;
+          return bTime - aTime;
+        });
 
       setConversations(items);
       if (isInitial) {
@@ -97,15 +141,12 @@ export function useConversations(currentUser: Profile | null) {
 
     fetchConversations(true);
 
-    // Coalesce bursts of realtime events into a single refetch — every message
-    // insert would otherwise trigger a full list rebuild plus an N+1 query.
     let refetchTimer: ReturnType<typeof setTimeout> | undefined;
     const scheduleRefetch = () => {
       clearTimeout(refetchTimer);
       refetchTimer = setTimeout(() => fetchConversations(false), 400);
     };
 
-    // Realtime subscriptions for messages and friendships
     const channel = supabase
       .channel("public:conversations:updates")
       .on(
@@ -121,10 +162,11 @@ export function useConversations(currentUser: Profile | null) {
       .subscribe();
 
     return () => {
+      active = false;
       clearTimeout(refetchTimer);
       supabase.removeChannel(channel);
     };
-  }, [currentUser?.id]);
+  }, [currentUser]);
 
   return { conversations, loading };
 }

@@ -1,5 +1,5 @@
 // src/hooks/useMessages.ts
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { supabase } from "../services/supabase";
 import type { Message } from "../types/message";
 import type { Profile } from "../types/profile";
@@ -12,6 +12,12 @@ function mapRow(row: Record<string, unknown>): Message {
     message: row.message as string,
     createdAt: row.created_at as string,
   };
+}
+
+function sortMessages(list: Message[]) {
+  return [...list].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  );
 }
 
 interface UseMessagesReturn {
@@ -29,17 +35,17 @@ export function useMessages(
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Bumped to force a re-sync with the server (e.g. after a delete we can't
-  // reconcile locally).
   const [resyncNonce, setResyncNonce] = useState(0);
 
-  const pairFilter =
-    currentUser && otherUser
-      ? `and(sender_id.eq.${currentUser.id},receiver_id.eq.${otherUser.id}),` +
-        `and(sender_id.eq.${otherUser.id},receiver_id.eq.${currentUser.id})`
-      : null;
+  const pairFilter = useMemo(
+    () =>
+      currentUser && otherUser
+        ? `and(sender_id.eq.${currentUser.id},receiver_id.eq.${otherUser.id}),` +
+          `and(sender_id.eq.${otherUser.id},receiver_id.eq.${currentUser.id})`
+        : null,
+    [currentUser, otherUser]
+  );
 
-  // Load the full conversation from the server.
   useEffect(() => {
     if (!currentUser || !otherUser || !pairFilter) {
       setMessages([]);
@@ -64,7 +70,7 @@ export function useMessages(
       if (fetchError) {
         setError(fetchError.message);
       } else {
-        setMessages((data ?? []).map(mapRow));
+        setMessages(sortMessages((data ?? []).map(mapRow)));
       }
       setLoading(false);
     };
@@ -74,10 +80,8 @@ export function useMessages(
     return () => {
       cancelled = true;
     };
-  }, [currentUser?.id, otherUser?.id, pairFilter, resyncNonce]);
+  }, [currentUser, otherUser, pairFilter, resyncNonce]);
 
-  // Real-time subscription, scoped to rows that involve the current user so
-  // clients don't receive the whole table.
   useEffect(() => {
     if (!currentUser || !otherUser) return;
 
@@ -94,9 +98,10 @@ export function useMessages(
       const row = payload.new;
       if (!belongsToThread(row)) return;
       const incoming = mapRow(row);
-      setMessages((prev) =>
-        prev.some((m) => m.id === incoming.id) ? prev : [...prev, incoming]
-      );
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === incoming.id)) return prev;
+        return sortMessages([...prev, incoming]);
+      });
     };
 
     const channel = supabase
@@ -131,8 +136,6 @@ export function useMessages(
           if (deletedId) {
             setMessages((prev) => prev.filter((m) => m.id !== deletedId));
           } else {
-            // Replica identity doesn't expose the id — re-sync from the server
-            // instead of blanking the conversation.
             setResyncNonce((n) => n + 1);
           }
         }
@@ -142,9 +145,8 @@ export function useMessages(
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [currentUser?.id, otherUser?.id]);
+  }, [currentUser, otherUser]);
 
-  // Send a message with an optimistic bubble.
   const sendMessage = async (text: string) => {
     if (!currentUser || !otherUser) return;
 
@@ -157,7 +159,7 @@ export function useMessages(
       createdAt: new Date().toISOString(),
     };
 
-    setMessages((prev) => [...prev, optimistic]);
+    setMessages((prev) => sortMessages([...prev, optimistic]));
 
     const { data, error: insertError } = await supabase
       .from("messages")
@@ -177,12 +179,11 @@ export function useMessages(
 
     if (data) {
       setMessages((prev) =>
-        prev.map((m) => (m.id === optimisticId ? mapRow(data) : m))
+        sortMessages(prev.map((m) => (m.id === optimisticId ? mapRow(data) : m)))
       );
     }
   };
 
-  // Clear chat history between the current user and the other user.
   const clearHistory = async () => {
     if (!currentUser || !otherUser || !pairFilter) return;
 

@@ -1,5 +1,5 @@
 // src/hooks/useUserSearch.ts
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../services/supabase";
 import type { Profile } from "../types/profile";
 
@@ -85,10 +85,10 @@ export function useUserSearch(currentUser: Profile | null) {
 
     const timer = setTimeout(search, 300);
     return () => clearTimeout(timer);
-  }, [searchTerm, currentUser?.id]);
+  }, [searchTerm, currentUser]);
 
   // Fetch incoming friend requests for badge / tab
-  const fetchIncomingRequests = async () => {
+  const fetchIncomingRequests = useCallback(async () => {
     if (!currentUser) return;
 
     const { data: pending } = await supabase
@@ -114,11 +114,11 @@ export function useUserSearch(currentUser: Profile | null) {
       });
       setIncomingRequests(formatted);
     }
-  };
+  }, [currentUser]);
 
   useEffect(() => {
-    fetchIncomingRequests();
-  }, [currentUser?.id]);
+    void fetchIncomingRequests();
+  }, [fetchIncomingRequests]);
 
   // Actions: Send, Accept, Cancel Request
   const sendFriendRequest = async (targetId: string) => {

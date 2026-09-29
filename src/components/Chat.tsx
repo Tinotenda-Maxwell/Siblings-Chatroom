@@ -1,5 +1,5 @@
 // src/components/Chat.tsx
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useCallback, type ReactNode } from "react";
 import MessageInput from "./MessageInput";
 import type { Message } from "../types/message";
 import type { Profile } from "../types/profile";
@@ -45,7 +45,9 @@ function dayKey(iso: string): number {
 function dayLabel(iso: string): string {
   const date = new Date(iso);
   const now = new Date();
-  const diffDays = Math.round((startOfDay(now) - startOfDay(date)) / 86_400_000);
+  const diffDays = Math.round(
+    (startOfDay(now) - startOfDay(date)) / 86_400_000,
+  );
   if (diffDays <= 0) return "Today";
   if (diffDays === 1) return "Yesterday";
   if (diffDays < 7) return date.toLocaleDateString([], { weekday: "long" });
@@ -89,7 +91,13 @@ function renderMessageContent(text: string) {
   return <span className="bubble-text">{text}</span>;
 }
 
-function Chat({ messages, loading, currentUser, otherUser, onSend }: ChatProps) {
+function Chat({
+  messages,
+  loading,
+  currentUser,
+  otherUser,
+  onSend,
+}: ChatProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const nearBottomRef = useRef(true);
@@ -115,66 +123,70 @@ function Chat({ messages, loading, currentUser, otherUser, onSend }: ChatProps) 
     firstLoadRef.current = false;
   }, [messages, loading, currentUser?.id]);
 
-  const handleScroll = () => {
+  const handleScroll = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
     nearBottomRef.current =
       el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-  };
+  }, []);
 
   const otherAvatarSrc =
     otherUser?.avatarUrl ||
     `https://api.dicebear.com/7.x/bottts/svg?seed=${otherUser?.username || "default"}`;
 
-  const renderMessage = (msg: Message) => {
-    const isOutgoing = msg.senderId === currentUser?.id;
+  const rows = useMemo<ReactNode[]>(() => {
+    const nextRows: ReactNode[] = [];
+    let lastKey = 0;
 
-    if (isOutgoing) {
-      return (
-        <div key={msg.id} className="message-group message-group--outgoing">
-          <div className="bubble bubble--outgoing">
-            {renderMessageContent(msg.message)}
-            <span className="bubble-meta">
-              {formatTime(msg.createdAt)} <CheckMarks />
+    for (const msg of messages) {
+      const key = dayKey(msg.createdAt);
+      if (key !== lastKey) {
+        lastKey = key;
+        nextRows.push(
+          <div className="date-divider" key={`divider-${key}`}>
+            <span className="date-divider-line" />
+            <span className="date-divider-label">
+              {dayLabel(msg.createdAt)}
             </span>
-          </div>
-        </div>
-      );
+            <span className="date-divider-line" />
+          </div>,
+        );
+      }
+
+      const isOutgoing = msg.senderId === currentUser?.id;
+
+      if (isOutgoing) {
+        nextRows.push(
+          <div key={msg.id} className="message-group message-group--outgoing">
+            <div className="bubble bubble--outgoing">
+              {renderMessageContent(msg.message)}
+              <span className="bubble-meta">
+                {formatTime(msg.createdAt)} <CheckMarks />
+              </span>
+            </div>
+          </div>,
+        );
+      } else {
+        nextRows.push(
+          <div key={msg.id} className="message-group message-group--incoming">
+            <img
+              className="avatar avatar--message"
+              src={otherAvatarSrc}
+              alt={otherUser?.displayName ?? "Contact"}
+            />
+            <div className="bubble-stack">
+              <div className="bubble bubble--incoming">
+                {renderMessageContent(msg.message)}
+                <span className="bubble-meta">{formatTime(msg.createdAt)}</span>
+              </div>
+            </div>
+          </div>,
+        );
+      }
     }
 
-    return (
-      <div key={msg.id} className="message-group message-group--incoming">
-        <img
-          className="avatar avatar--message"
-          src={otherAvatarSrc}
-          alt={otherUser?.displayName ?? "Contact"}
-        />
-        <div className="bubble-stack">
-          <div className="bubble bubble--incoming">
-            {renderMessageContent(msg.message)}
-            <span className="bubble-meta">{formatTime(msg.createdAt)}</span>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const rows: ReactNode[] = [];
-  let lastKey = 0;
-  for (const msg of messages) {
-    const key = dayKey(msg.createdAt);
-    if (key !== lastKey) {
-      lastKey = key;
-      rows.push(
-        <div className="date-divider" key={`divider-${key}`}>
-          <span className="date-divider-line" />
-          <span className="date-divider-label">{dayLabel(msg.createdAt)}</span>
-          <span className="date-divider-line" />
-        </div>
-      );
-    }
-    rows.push(renderMessage(msg));
-  }
+    return nextRows;
+  }, [messages, currentUser?.id, otherAvatarSrc, otherUser?.displayName]);
 
   return (
     <div className="chat">
