@@ -9,6 +9,7 @@ interface HeaderProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
   onClearHistory: () => Promise<void>;
+  onBack?: () => void;
 }
 
 function Header({
@@ -16,6 +17,7 @@ function Header({
   searchQuery,
   onSearchChange,
   onClearHistory,
+  onBack,
 }: HeaderProps) {
   const navigate = useNavigate();
   const [showSearch, setShowSearch] = useState(false);
@@ -46,6 +48,29 @@ function Header({
 
   return (
     <header className="chat-header">
+      <button
+        className="chat-header-back"
+        aria-label="Back to conversations"
+        onClick={onBack}
+        title="Back"
+      >
+        <svg
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="M15 18l-6-6 6-6"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+
       <div className="chat-header-contact">
         <div className="avatar-wrapper">
           <img
@@ -66,29 +91,21 @@ function Header({
       </div>
 
       {showSearch && (
-        <div style={{ flex: 1, maxWidth: "260px", margin: "0 16px" }}>
+        <div className="chat-header-search">
           <input
-            className="message-input"
+            className="chat-header-search-input"
             type="text"
             placeholder="Search in chat..."
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
-            style={{
-              width: "100%",
-              backgroundColor: "#14101c",
-              border: "1px solid #221d2c",
-              borderRadius: "20px",
-              padding: "0 14px",
-              height: "36px",
-            }}
             autoFocus
           />
         </div>
       )}
 
-      <div className="chat-header-actions" style={{ position: "relative" }}>
+      <div className="chat-header-actions">
         <button
-          className="icon-button"
+          className={`icon-button${showSearch ? " icon-button--active" : ""}`}
           aria-label="Search"
           onClick={() => {
             setShowSearch(!showSearch);
@@ -120,7 +137,7 @@ function Header({
         </button>
 
         <button
-          className="icon-button"
+          className={`icon-button${showMenu ? " icon-button--active" : ""}`}
           aria-label="More options"
           onClick={() => setShowMenu(!showMenu)}
           title="More options"
@@ -139,53 +156,20 @@ function Header({
         </button>
 
         {showMenu && (
-          <div
-            ref={menuRef}
-            style={{
-              position: "absolute",
-              top: "48px",
-              right: "0",
-              backgroundColor: "#14101c",
-              border: "1px solid #221d2c",
-              borderRadius: "14px",
-              padding: "8px",
-              boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
-              zIndex: 100,
-              minWidth: "160px",
-              display: "flex",
-              flexDirection: "column",
-              gap: "4px",
-            }}
-          >
+          <div ref={menuRef} className="dropdown-menu">
             <button
+              className="dropdown-item dropdown-item--danger"
               onClick={() => {
                 setShowMenu(false);
                 if (window.confirm("Clear all message history with this user?")) {
                   onClearHistory();
                 }
               }}
-              style={{
-                textAlign: "left",
-                padding: "8px 12px",
-                borderRadius: "8px",
-                fontSize: "13.5px",
-                color: "#f87171",
-                cursor: "pointer",
-              }}
             >
               Clear Chat History
             </button>
-            <button
-              onClick={handleLogout}
-              style={{
-                textAlign: "left",
-                padding: "8px 12px",
-                borderRadius: "8px",
-                fontSize: "13.5px",
-                color: "#b8b2c2",
-                cursor: "pointer",
-              }}
-            >
+            <div className="dropdown-divider" />
+            <button className="dropdown-item" onClick={handleLogout}>
               Log Out
             </button>
           </div>

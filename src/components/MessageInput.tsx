@@ -91,33 +91,13 @@ function MessageInput({ onSend, disabled = false }: MessageInputProps) {
 
       {/* Emoji Picker Popover */}
       {showEmojis && (
-        <div
-          ref={emojiRef}
-          style={{
-            position: "absolute",
-            bottom: "60px",
-            right: "50px",
-            backgroundColor: "#14101c",
-            border: "1px solid #221d2c",
-            borderRadius: "16px",
-            padding: "10px",
-            display: "flex",
-            gap: "8px",
-            boxShadow: "0 10px 30px rgba(0,0,0,0.5)",
-            zIndex: 50,
-          }}
-        >
+        <div ref={emojiRef} className="emoji-popover">
           {EMOJI_LIST.map((emoji) => (
             <button
               key={emoji}
               type="button"
+              className="emoji-item"
               onClick={() => addEmoji(emoji)}
-              style={{
-                fontSize: "18px",
-                padding: "4px",
-                borderRadius: "6px",
-                cursor: "pointer",
-              }}
             >
               {emoji}
             </button>

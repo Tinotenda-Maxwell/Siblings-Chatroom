@@ -67,17 +67,16 @@ function Sidebar({
   return (
     <aside className="sidebar">
       {/* Sidebar header with title & search icon */}
-      <div className="sidebar-header" style={{ justifyContent: "space-between" }}>
+      <div className="sidebar-header">
         <h1 className="sidebar-title">Messages</h1>
         <button
-          className="icon-button"
+          className={`icon-button${showSearch ? " icon-button--active" : ""}`}
           onClick={() => {
             setShowSearch(!showSearch);
             if (showSearch) setSearchTerm("");
           }}
           title={showSearch ? "Close user search" : "Find friends by username"}
           aria-label="Search users"
-          style={{ position: "relative" }}
         >
           <svg
             width="20"
@@ -101,103 +100,48 @@ function Sidebar({
             )}
           </svg>
           {incomingRequests.length > 0 && !showSearch && (
-            <span
-              style={{
-                position: "absolute",
-                top: "4px",
-                right: "4px",
-                width: "8px",
-                height: "8px",
-                borderRadius: "50%",
-                backgroundColor: "#a78bfa",
-              }}
-            />
+            <span className="badge-dot" />
           )}
         </button>
       </div>
 
       {/* Toggleable search container — pushes chats down smoothly */}
       {showSearch && (
-        <div ref={searchRef} style={{ padding: "0 12px 12px" }}>
+        <div ref={searchRef} className="sidebar-search">
           <input
-            className="message-input"
+            className="sidebar-search-input"
             type="text"
             placeholder="Search by username..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            style={{
-              width: "100%",
-              backgroundColor: "#14101c",
-              border: "1px solid #221d2c",
-              borderRadius: "14px",
-              padding: "0 14px",
-              height: "38px",
-              marginBottom: "8px",
-            }}
             autoFocus
           />
 
           {/* Pending Friend Requests Section */}
           {incomingRequests.length > 0 && !searchTerm && (
-            <div
-              style={{
-                backgroundColor: "#14101c",
-                border: "1px solid #221d2c",
-                borderRadius: "12px",
-                padding: "8px",
-                marginBottom: "8px",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: "11px",
-                  color: "#a78bfa",
-                  fontWeight: 600,
-                  marginBottom: "6px",
-                  paddingLeft: "4px",
-                }}
-              >
-                PENDING REQUESTS ({incomingRequests.length})
+            <div className="request-panel">
+              <div className="request-panel-title">
+                Pending requests ({incomingRequests.length})
               </div>
               {incomingRequests.map(({ profile, friendshipId }) => (
-                <div
-                  key={profile.id}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "6px",
-                    borderRadius: "8px",
-                    backgroundColor: "#191325",
-                    marginBottom: "4px",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <div key={profile.id} className="request-row">
+                  <div className="request-row-person">
                     <img
-                      className="avatar"
+                      className="avatar request-row-avatar"
                       src={
                         profile.avatarUrl ||
                         `https://api.dicebear.com/7.x/bottts/svg?seed=${profile.username}`
                       }
                       alt={profile.displayName}
-                      style={{ width: "30px", height: "30px" }}
                     />
                     <div>
-                      <div style={{ fontSize: "13px", fontWeight: 600 }}>{profile.displayName}</div>
-                      <div style={{ fontSize: "11px", color: "#8b8594" }}>@{profile.username}</div>
+                      <div className="request-row-name">{profile.displayName}</div>
+                      <div className="request-row-username">@{profile.username}</div>
                     </div>
                   </div>
                   <button
+                    className="pill-btn pill-btn--solid"
                     onClick={() => acceptFriendRequest(friendshipId, profile.id)}
-                    style={{
-                      padding: "4px 10px",
-                      borderRadius: "6px",
-                      backgroundColor: "#7c3aed",
-                      color: "#fff",
-                      fontSize: "11px",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                    }}
                   >
                     Accept
                   </button>
@@ -208,24 +152,13 @@ function Sidebar({
 
           {/* Search Results Dropdown/Box */}
           {(searchTerm || searching) && (
-            <div
-              style={{
-                backgroundColor: "#14101c",
-                border: "1px solid #221d2c",
-                borderRadius: "12px",
-                padding: "8px",
-                maxHeight: "220px",
-                overflowY: "auto",
-              }}
-            >
+            <div className="search-panel">
               {searching && (
-                <div style={{ padding: "8px", color: "#8b8594", fontSize: "12.5px" }}>
-                  Searching users…
-                </div>
+                <div className="search-loading">Searching users…</div>
               )}
 
               {!searching && searchTerm && results.length === 0 && (
-                <div style={{ padding: "8px", color: "#8b8594", fontSize: "12.5px" }}>
+                <div className="search-empty">
                   No users found matching "@{searchTerm}".
                 </div>
               )}
@@ -237,66 +170,36 @@ function Sidebar({
                     `https://api.dicebear.com/7.x/bottts/svg?seed=${profile.username}`;
 
                   return (
-                    <div
-                      key={profile.id}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        padding: "8px",
-                        borderRadius: "8px",
-                        backgroundColor: "#191325",
-                        marginBottom: "4px",
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <div key={profile.id} className="search-row">
+                      <div className="search-row-person">
                         <img
-                          className="avatar"
+                          className="avatar search-row-avatar"
                           src={avatarSrc}
                           alt={profile.displayName}
-                          style={{ width: "32px", height: "32px" }}
                         />
                         <div>
-                          <div style={{ fontSize: "13px", fontWeight: 600 }}>{profile.displayName}</div>
-                          <div style={{ fontSize: "11px", color: "#8b8594" }}>@{profile.username}</div>
+                          <div className="search-row-name">{profile.displayName}</div>
+                          <div className="search-row-username">@{profile.username}</div>
                         </div>
                       </div>
 
                       {friendshipStatus === "none" && (
                         <button
+                          className="pill-btn pill-btn--outline"
                           onClick={() => sendFriendRequest(profile.id)}
-                          style={{
-                            padding: "4px 10px",
-                            borderRadius: "6px",
-                            border: "1px solid #7c3aed",
-                            color: "#a78bfa",
-                            fontSize: "11px",
-                            fontWeight: 600,
-                            cursor: "pointer",
-                          }}
                         >
                           Add
                         </button>
                       )}
 
                       {friendshipStatus === "pending_sent" && (
-                        <span style={{ fontSize: "11px", color: "#8b8594", padding: "4px" }}>
-                          Sent
-                        </span>
+                        <span className="pill-btn pill-btn--sent">Sent</span>
                       )}
 
                       {friendshipStatus === "pending_received" && (
                         <button
+                          className="pill-btn pill-btn--solid"
                           onClick={() => acceptFriendRequest(friendshipId, profile.id)}
-                          style={{
-                            padding: "4px 10px",
-                            borderRadius: "6px",
-                            backgroundColor: "#7c3aed",
-                            color: "#fff",
-                            fontSize: "11px",
-                            fontWeight: 600,
-                            cursor: "pointer",
-                          }}
                         >
                           Accept
                         </button>
@@ -304,19 +207,11 @@ function Sidebar({
 
                       {friendshipStatus === "accepted" && (
                         <button
+                          className="pill-btn pill-btn--muted"
                           onClick={() => {
                             onSelectUser(profile);
                             setShowSearch(false);
                             setSearchTerm("");
-                          }}
-                          style={{
-                            padding: "4px 10px",
-                            borderRadius: "6px",
-                            backgroundColor: "#241d30",
-                            color: "#a78bfa",
-                            fontSize: "11px",
-                            fontWeight: 600,
-                            cursor: "pointer",
                           }}
                         >
                           Message
@@ -333,8 +228,9 @@ function Sidebar({
       {/* Main Conversation List — stays visible and shifts down when search is active */}
       <div className="conversation-list">
         {conversations.length === 0 ? (
-          <div style={{ padding: "20px 12px", color: "#8b8594", fontSize: "13.5px" }}>
-            No conversations yet. Click the search icon above to find friends by username!
+          <div className="conversation-empty">
+            No conversations yet. Click the search icon above to find friends by
+            username!
           </div>
         ) : (
           conversations.map(({ profile, lastMessage }) => {

@@ -25,6 +25,15 @@ function ChatPage() {
   const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  // Tracks whether the single-pane mobile layout is showing the open
+  // conversation (vs. the conversation list). Irrelevant above the mobile
+  // breakpoint, where both panes are shown side by side regardless.
+  const [mobileConversationOpen, setMobileConversationOpen] = useState(false);
+
+  const handleSelectUser = (user: Profile) => {
+    setSelectedUser(user);
+    setMobileConversationOpen(true);
+  };
 
   // 1. Fetch current logged-in user profile
   useEffect(() => {
@@ -96,12 +105,14 @@ function ChatPage() {
   }
 
   return (
-    <div className="app">
+    <div
+      className={`app${mobileConversationOpen ? " app--conversation-open" : ""}`}
+    >
       <Sidebar
         currentUser={currentUser}
         selectedUser={selectedUser}
         conversations={conversations}
-        onSelectUser={(user) => setSelectedUser(user)}
+        onSelectUser={handleSelectUser}
       />
       <div className="main-panel">
         <Header
@@ -109,6 +120,7 @@ function ChatPage() {
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           onClearHistory={clearHistory}
+          onBack={() => setMobileConversationOpen(false)}
         />
         {messagesError && (
           <div className="chat-error" role="alert">
