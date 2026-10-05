@@ -4,6 +4,9 @@ import { supabase } from "../services/supabase";
 import type { Message } from "../types/message";
 import type { Profile } from "../types/profile";
 
+// Load only the most recent messages; older history can be paged in later.
+const INITIAL_PAGE_SIZE = 100;
+
 function mapRow(row: Record<string, unknown>): Message {
   return {
     id: row.id as string,
@@ -61,9 +64,10 @@ export function useMessages(
 
       const { data, error: fetchError } = await supabase
         .from("messages")
-        .select("*")
+        .select("id, sender_id, receiver_id, message, created_at")
         .or(pairFilter)
-        .order("created_at", { ascending: true });
+        .order("created_at", { ascending: false })
+        .limit(INITIAL_PAGE_SIZE);
 
       if (cancelled) return;
 

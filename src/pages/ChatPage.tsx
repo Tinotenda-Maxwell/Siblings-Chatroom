@@ -51,7 +51,7 @@ function ChatPage() {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("*")
+        .select("id, username, display_name, avatar_url, created_at")
         .eq("id", userId)
         .single();
 
@@ -96,7 +96,7 @@ function ChatPage() {
     [messages, deferredSearchQuery],
   );
 
-  if (profileLoading || convsLoading) {
+  if (profileLoading) {
     return (
       <div className="auth-loading">
         <div className="auth-spinner" />
@@ -112,6 +112,7 @@ function ChatPage() {
         currentUser={currentUser}
         selectedUser={selectedUser}
         conversations={conversations}
+        loading={convsLoading}
         onSelectUser={handleSelectUser}
       />
       <div className="main-panel">

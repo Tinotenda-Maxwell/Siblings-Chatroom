@@ -74,6 +74,8 @@ function renderMessageContent(text: string) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
         <img
+          loading="lazy"
+          decoding="async"
           src={src}
           alt={filename}
           style={{
@@ -171,6 +173,8 @@ function Chat({
           <div key={msg.id} className="message-group message-group--incoming">
             <img
               className="avatar avatar--message"
+              loading="lazy"
+              decoding="async"
               src={otherAvatarSrc}
               alt={otherUser?.displayName ?? "Contact"}
             />

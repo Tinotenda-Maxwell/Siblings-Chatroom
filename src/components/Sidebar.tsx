@@ -10,6 +10,7 @@ interface SidebarProps {
   currentUser: Profile | null;
   selectedUser: Profile | null;
   conversations: ConversationItem[];
+  loading?: boolean;
   onSelectUser: (user: Profile) => void;
 }
 
@@ -23,6 +24,7 @@ function Sidebar({
   currentUser,
   selectedUser,
   conversations,
+  loading = false,
   onSelectUser,
 }: SidebarProps) {
   const navigate = useNavigate();
@@ -127,6 +129,8 @@ function Sidebar({
                 <div key={profile.id} className="request-row">
                   <div className="request-row-person">
                     <img
+                      loading="lazy"
+                      decoding="async"
                       className="avatar request-row-avatar"
                       src={
                         profile.avatarUrl ||
@@ -173,6 +177,8 @@ function Sidebar({
                     <div key={profile.id} className="search-row">
                       <div className="search-row-person">
                         <img
+                      loading="lazy"
+                      decoding="async"
                           className="avatar search-row-avatar"
                           src={avatarSrc}
                           alt={profile.displayName}
@@ -227,7 +233,9 @@ function Sidebar({
 
       {/* Main Conversation List — stays visible and shifts down when search is active */}
       <div className="conversation-list">
-        {conversations.length === 0 ? (
+        {loading && conversations.length === 0 ? (
+          <div className="conversation-empty">Loading conversations…</div>
+        ) : conversations.length === 0 ? (
           <div className="conversation-empty">
             No conversations yet. Click the search icon above to find friends by
             username!
@@ -249,6 +257,8 @@ function Sidebar({
               >
                 <div className="avatar-wrapper">
                   <img
+                      loading="lazy"
+                      decoding="async"
                     className="avatar"
                     src={avatarSrc}
                     alt={profile.displayName}

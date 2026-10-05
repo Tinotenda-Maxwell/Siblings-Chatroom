@@ -9,6 +9,9 @@ export interface ConversationItem {
   lastMessage?: Message;
 }
 
+const PROFILE_COLUMNS = "id, username, display_name, avatar_url, created_at";
+const MESSAGE_COLUMNS = "id, sender_id, receiver_id, message, created_at";
+
 function mapProfile(row: Record<string, unknown>): Profile {
   return {
     id: row.id as string,
@@ -75,20 +78,29 @@ export function useConversations(currentUser: Profile | null) {
 
       const friendIdList = Array.from(friendIds);
 
-      const [profilesResult, messagesResult] = await Promise.all([
+      // Only the newest message per friend is needed for the sidebar preview.
+      // Fetching whole histories (which may contain base64 images) is far
+      // slower, so run one tiny limit(1) query per friend in parallel.
+      const [profilesResult, latestRows] = await Promise.all([
         supabase
           .from("profiles")
-          .select("*")
+          .select(PROFILE_COLUMNS)
           .neq("id", currentUser.id)
           .in("id", friendIdList),
-        supabase
-          .from("messages")
-          .select("*")
-          .or(
-            `and(sender_id.eq.${currentUser.id},receiver_id.in.(${friendIdList.join(",")})),` +
-              `and(sender_id.in.(${friendIdList.join(",")}),receiver_id.eq.${currentUser.id})`
+        Promise.all(
+          friendIdList.map((friendId) =>
+            supabase
+              .from("messages")
+              .select(MESSAGE_COLUMNS)
+              .or(
+                `and(sender_id.eq.${currentUser.id},receiver_id.eq.${friendId}),` +
+                  `and(sender_id.eq.${friendId},receiver_id.eq.${currentUser.id})`
+              )
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .maybeSingle()
           )
-          .order("created_at", { ascending: false }),
+        ),
       ]);
 
       if (!active) return;
@@ -101,22 +113,9 @@ export function useConversations(currentUser: Profile | null) {
       const profiles = profilesResult.data.map(mapProfile);
       const latestMessagesByPeer = new Map<string, Message>();
 
-      for (const row of messagesResult.data ?? []) {
-        const message = mapMessage(row);
-        const peerId =
-          message.senderId === currentUser.id
-            ? message.receiverId
-            : message.senderId;
-        const currentLatest = latestMessagesByPeer.get(peerId);
-
-        if (
-          !currentLatest ||
-          new Date(message.createdAt).getTime() >
-            new Date(currentLatest.createdAt).getTime()
-        ) {
-          latestMessagesByPeer.set(peerId, message);
-        }
-      }
+      latestRows.forEach(({ data }, i) => {
+        if (data) latestMessagesByPeer.set(friendIdList[i], mapMessage(data));
+      });
 
       const items = profiles
         .map((profile) => ({
