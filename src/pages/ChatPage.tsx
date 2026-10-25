@@ -1,72 +1,66 @@
 // src/pages/ChatPage.tsx
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import { useSession } from "../hooks/useSession";
 import { useMessages } from "../hooks/useMessages";
 import { useConversations } from "../hooks/useConversations";
+import {
+  PROFILE_COLUMNS,
+  mapProfile,
+  previewText,
+  readCache,
+  writeCache,
+} from "../services/mappers";
 import Sidebar from "../components/Sidebar";
 import Header from "../components/Header";
 import Chat from "../components/Chat";
 import type { Profile } from "../types/profile";
 
-function mapProfile(row: Record<string, unknown>): Profile {
-  return {
-    id: row.id as string,
-    username: row.username as string,
-    displayName: row.display_name as string,
-    avatarUrl: (row.avatar_url as string | null) ?? null,
-    createdAt: row.created_at as string,
-  };
-}
+const profileCacheKey = (userId: string) => `sibling-chat:profile:${userId}`;
 
 function ChatPage() {
-  const navigate = useNavigate();
-  const [currentUser, setCurrentUser] = useState<Profile | null>(null);
+  // ProtectedRoute guarantees a session here.
+  const userId = useSession()?.user.id ?? null;
+  const [currentUser, setCurrentUser] = useState<Profile | null>(() =>
+    userId ? readCache<Profile>(profileCacheKey(userId)) : null,
+  );
   const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
-  const [profileLoading, setProfileLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   // Tracks whether the single-pane mobile layout is showing the open
   // conversation (vs. the conversation list). Irrelevant above the mobile
   // breakpoint, where both panes are shown side by side regardless.
   const [mobileConversationOpen, setMobileConversationOpen] = useState(false);
 
-  const handleSelectUser = (user: Profile) => {
+  const handleSelectUser = useCallback((user: Profile) => {
     setSelectedUser(user);
     setMobileConversationOpen(true);
-  };
+  }, []);
 
-  // 1. Fetch current logged-in user profile
+  // 1. Refresh the current user's profile. Everything else only needs the
+  //    user id, so it loads in parallel instead of waiting on this.
   useEffect(() => {
-    const load = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+    if (!userId) return;
+    let active = true;
 
-      if (!session) {
-        navigate("/login");
-        return;
-      }
+    supabase
+      .from("profiles")
+      .select(PROFILE_COLUMNS)
+      .eq("id", userId)
+      .single()
+      .then(({ data: profile }) => {
+        if (!active || !profile) return;
+        const mapped = mapProfile(profile);
+        setCurrentUser(mapped);
+        writeCache(profileCacheKey(userId), mapped);
+      });
 
-      const userId = session.user.id;
-
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("id, username, display_name, avatar_url, created_at")
-        .eq("id", userId)
-        .single();
-
-      if (profile) {
-        setCurrentUser(mapProfile(profile));
-      }
-      setProfileLoading(false);
+    return () => {
+      active = false;
     };
-
-    load();
-  }, [navigate]);
+  }, [userId]);
 
   // 2. Fetch conversations list from Supabase profiles database
-  const { conversations, loading: convsLoading } =
-    useConversations(currentUser);
+  const { conversations, loading: convsLoading } = useConversations(userId);
 
   // 3. Auto-select first contact if none selected yet
   useEffect(() => {
@@ -82,27 +76,18 @@ function ChatPage() {
     error: messagesError,
     sendMessage,
     clearHistory,
-  } = useMessages(currentUser, selectedUser);
+  } = useMessages(userId, selectedUser);
 
   const deferredSearchQuery = useDeferredValue(searchQuery);
 
-  const filteredMessages = useMemo(
-    () =>
-      deferredSearchQuery.trim()
-        ? messages.filter((m) =>
-            m.message.toLowerCase().includes(deferredSearchQuery.toLowerCase()),
-          )
-        : messages,
-    [messages, deferredSearchQuery],
-  );
+  const filteredMessages = useMemo(() => {
+    const query = deferredSearchQuery.trim().toLowerCase();
+    if (!query) return messages;
+    // Match images by filename, not by their base64 payload.
+    return messages.filter((m) => previewText(m.message).toLowerCase().includes(query));
+  }, [messages, deferredSearchQuery]);
 
-  if (profileLoading) {
-    return (
-      <div className="auth-loading">
-        <div className="auth-spinner" />
-      </div>
-    );
-  }
+  const handleBack = useCallback(() => setMobileConversationOpen(false), []);
 
   return (
     <div
@@ -110,6 +95,7 @@ function ChatPage() {
     >
       <Sidebar
         currentUser={currentUser}
+        currentUserId={userId}
         selectedUser={selectedUser}
         conversations={conversations}
         loading={convsLoading}
@@ -121,7 +107,7 @@ function ChatPage() {
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           onClearHistory={clearHistory}
-          onBack={() => setMobileConversationOpen(false)}
+          onBack={handleBack}
         />
         {messagesError && (
           <div className="chat-error" role="alert">
@@ -131,7 +117,7 @@ function ChatPage() {
         <Chat
           messages={filteredMessages}
           loading={messagesLoading}
-          currentUser={currentUser}
+          currentUserId={userId}
           otherUser={selectedUser}
           onSend={sendMessage}
         />

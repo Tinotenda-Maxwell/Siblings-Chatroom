@@ -7,7 +7,48 @@ interface MessageInputProps {
 }
 
 const EMOJI_LIST = ["😃", "💜", "🎉", "🥰", "🙌", "❤️", "👍", "🔥", "✨", "😊"];
+const MAX_SOURCE_BYTES = 20 * 1024 * 1024; // original file, before compression
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024; // 2 MB — images are inlined as data URLs
+const MAX_DIMENSION = 1280;
+
+function readAsDataURL(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+// Images travel inside the message row, so every thread load and realtime
+// event carries them. Downscale and re-encode first — a typical phone photo
+// drops from several MB to ~100–200 KB.
+async function encodeImage(file: File): Promise<Blob> {
+  // Re-encoding would drop GIF animation / SVG vectors.
+  if (file.type === "image/gif" || file.type === "image/svg+xml") return file;
+
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, MAX_DIMENSION / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return file;
+    // JPEG has no alpha; paint white so transparent areas don't turn black.
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", 0.82)
+    );
+    return blob && blob.size < file.size ? blob : file;
+  } catch {
+    return file;
+  }
+}
 
 function MessageInput({ onSend, disabled = false }: MessageInputProps) {
   const [text, setText] = useState("");
@@ -55,7 +96,7 @@ function MessageInput({ onSend, disabled = false }: MessageInputProps) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
@@ -64,16 +105,20 @@ function MessageInput({ onSend, disabled = false }: MessageInputProps) {
       window.alert("Only image attachments are supported right now.");
       return;
     }
-    if (file.size > MAX_IMAGE_BYTES) {
+    if (file.size > MAX_SOURCE_BYTES) {
+      window.alert("That image is too large — please choose one under 20 MB.");
+      return;
+    }
+
+    const encoded = await encodeImage(file);
+    if (encoded.size > MAX_IMAGE_BYTES) {
       window.alert("That image is too large — please choose one under 2 MB.");
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      void onSend(`[Image: ${file.name}] (${reader.result as string})`);
-    };
-    reader.readAsDataURL(file);
+    const dataUrl = await readAsDataURL(encoded);
+    // Failures are surfaced by the chat's error banner.
+    Promise.resolve(onSend(`[Image: ${file.name}] (${dataUrl})`)).catch(() => {});
   };
 
   const canSend = !disabled && !sending && text.trim().length > 0;
@@ -85,7 +130,7 @@ function MessageInput({ onSend, disabled = false }: MessageInputProps) {
         type="file"
         accept="image/*"
         ref={fileInputRef}
-        onChange={handleFileSelect}
+        onChange={(e) => void handleFileSelect(e)}
         style={{ display: "none" }}
       />
 

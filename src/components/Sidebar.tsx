@@ -1,13 +1,16 @@
 // src/components/Sidebar.tsx
-import { useState, useRef, useEffect } from "react";
+import { memo, useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
+import { avatarFor } from "../services/mappers";
 import { useUserSearch } from "../hooks/useUserSearch";
+import { prefetchThread } from "../hooks/useMessages";
 import type { Profile } from "../types/profile";
 import type { ConversationItem } from "../hooks/useConversations";
 
 interface SidebarProps {
   currentUser: Profile | null;
+  currentUserId: string | null;
   selectedUser: Profile | null;
   conversations: ConversationItem[];
   loading?: boolean;
@@ -22,6 +25,7 @@ function formatTime(iso?: string): string {
 
 function Sidebar({
   currentUser,
+  currentUserId,
   selectedUser,
   conversations,
   loading = false,
@@ -39,7 +43,7 @@ function Sidebar({
     incomingRequests,
     sendFriendRequest,
     acceptFriendRequest,
-  } = useUserSearch(currentUser);
+  } = useUserSearch(currentUserId);
 
   const currentInitial = currentUser?.displayName?.[0]?.toUpperCase() ?? "M";
 
@@ -132,10 +136,7 @@ function Sidebar({
                       loading="lazy"
                       decoding="async"
                       className="avatar request-row-avatar"
-                      src={
-                        profile.avatarUrl ||
-                        `https://api.dicebear.com/7.x/bottts/svg?seed=${profile.username}`
-                      }
+                      src={avatarFor(profile)}
                       alt={profile.displayName}
                     />
                     <div>
@@ -169,9 +170,7 @@ function Sidebar({
 
               {!searching &&
                 results.map(({ profile, friendshipStatus, friendshipId }) => {
-                  const avatarSrc =
-                    profile.avatarUrl ||
-                    `https://api.dicebear.com/7.x/bottts/svg?seed=${profile.username}`;
+                  const avatarSrc = avatarFor(profile);
 
                   return (
                     <div key={profile.id} className="search-row">
@@ -243,9 +242,7 @@ function Sidebar({
         ) : (
           conversations.map(({ profile, lastMessage }) => {
             const isSelected = selectedUser?.id === profile.id;
-            const avatarSrc =
-              profile.avatarUrl ||
-              `https://api.dicebear.com/7.x/bottts/svg?seed=${profile.username}`;
+            const avatarSrc = avatarFor(profile);
 
             return (
               <div
@@ -254,6 +251,10 @@ function Sidebar({
                   isSelected ? "conversation-item--selected" : ""
                 }`}
                 onClick={() => onSelectUser(profile)}
+                // Start loading the thread on hover/touch so it's usually
+                // ready by the time the click lands.
+                onPointerEnter={() => prefetchThread(currentUserId, profile.id)}
+                onTouchStart={() => prefetchThread(currentUserId, profile.id)}
               >
                 <div className="avatar-wrapper">
                   <img
@@ -322,4 +323,4 @@ function Sidebar({
   );
 }
 
-export default Sidebar;
+export default memo(Sidebar);

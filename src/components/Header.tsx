@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
+import { avatarFor } from "../services/mappers";
 import type { Profile } from "../types/profile";
 
 interface HeaderProps {
@@ -25,9 +26,7 @@ function Header({
   const menuRef = useRef<HTMLDivElement>(null);
 
   const displayName = otherUser?.displayName ?? "Contact";
-  const avatarSrc =
-    otherUser?.avatarUrl ||
-    `https://api.dicebear.com/7.x/bottts/svg?seed=${otherUser?.username || "default"}`;
+  const avatarSrc = avatarFor(otherUser);
 
   // Close dropdown when clicking outside
   useEffect(() => {

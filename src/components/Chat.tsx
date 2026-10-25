@@ -1,6 +1,7 @@
 // src/components/Chat.tsx
-import { useEffect, useMemo, useRef, useCallback, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useCallback, type ReactNode } from "react";
 import MessageInput from "./MessageInput";
+import { avatarFor, parseImage } from "../services/mappers";
 import type { Message } from "../types/message";
 import type { Profile } from "../types/profile";
 
@@ -61,23 +62,22 @@ function dayLabel(iso: string): string {
 interface ChatProps {
   messages: Message[];
   loading: boolean;
-  currentUser: Profile | null;
+  currentUserId: string | null;
   otherUser: Profile | null;
   onSend: (text: string) => Promise<void>;
 }
 
 function renderMessageContent(text: string) {
   // Check if message is an image attachment: [Image: name] (dataUrl)
-  const imageMatch = text.match(/^\[Image: (.*?)\] \((data:image\/.*)\)$/);
-  if (imageMatch) {
-    const [, filename, src] = imageMatch;
+  const image = parseImage(text);
+  if (image) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
         <img
           loading="lazy"
           decoding="async"
-          src={src}
-          alt={filename}
+          src={image.src}
+          alt={image.filename}
           style={{
             maxWidth: "240px",
             maxHeight: "240px",
@@ -85,7 +85,7 @@ function renderMessageContent(text: string) {
             objectFit: "cover",
           }}
         />
-        <span style={{ fontSize: "11px", opacity: 0.8 }}>📷 {filename}</span>
+        <span style={{ fontSize: "11px", opacity: 0.8 }}>📷 {image.filename}</span>
       </div>
     );
   }
@@ -93,10 +93,56 @@ function renderMessageContent(text: string) {
   return <span className="bubble-text">{text}</span>;
 }
 
+interface MessageRowProps {
+  message: Message;
+  outgoing: boolean;
+  avatarSrc: string;
+  avatarAlt: string;
+}
+
+// Memoised so appending a message renders one new row instead of every row.
+const MessageRow = memo(function MessageRow({
+  message,
+  outgoing,
+  avatarSrc,
+  avatarAlt,
+}: MessageRowProps) {
+  if (outgoing) {
+    return (
+      <div className="message-group message-group--outgoing">
+        <div className="bubble bubble--outgoing">
+          {renderMessageContent(message.message)}
+          <span className="bubble-meta">
+            {formatTime(message.createdAt)} <CheckMarks />
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="message-group message-group--incoming">
+      <img
+        className="avatar avatar--message"
+        loading="lazy"
+        decoding="async"
+        src={avatarSrc}
+        alt={avatarAlt}
+      />
+      <div className="bubble-stack">
+        <div className="bubble bubble--incoming">
+          {renderMessageContent(message.message)}
+          <span className="bubble-meta">{formatTime(message.createdAt)}</span>
+        </div>
+      </div>
+    </div>
+  );
+});
+
 function Chat({
   messages,
   loading,
-  currentUser,
+  currentUserId,
   otherUser,
   onSend,
 }: ChatProps) {
@@ -116,14 +162,14 @@ function Chat({
   useEffect(() => {
     if (loading) return;
     const last = messages[messages.length - 1];
-    const sentByMe = last?.senderId === currentUser?.id;
+    const sentByMe = last?.senderId === currentUserId;
     if (firstLoadRef.current || nearBottomRef.current || sentByMe) {
       bottomRef.current?.scrollIntoView({
         behavior: firstLoadRef.current ? "auto" : "smooth",
       });
     }
     firstLoadRef.current = false;
-  }, [messages, loading, currentUser?.id]);
+  }, [messages, loading, currentUserId]);
 
   const handleScroll = useCallback(() => {
     const el = containerRef.current;
@@ -132,9 +178,8 @@ function Chat({
       el.scrollHeight - el.scrollTop - el.clientHeight < 120;
   }, []);
 
-  const otherAvatarSrc =
-    otherUser?.avatarUrl ||
-    `https://api.dicebear.com/7.x/bottts/svg?seed=${otherUser?.username || "default"}`;
+  const otherAvatarSrc = avatarFor(otherUser);
+  const otherName = otherUser?.displayName ?? "Contact";
 
   const rows = useMemo<ReactNode[]>(() => {
     const nextRows: ReactNode[] = [];
@@ -155,42 +200,19 @@ function Chat({
         );
       }
 
-      const isOutgoing = msg.senderId === currentUser?.id;
-
-      if (isOutgoing) {
-        nextRows.push(
-          <div key={msg.id} className="message-group message-group--outgoing">
-            <div className="bubble bubble--outgoing">
-              {renderMessageContent(msg.message)}
-              <span className="bubble-meta">
-                {formatTime(msg.createdAt)} <CheckMarks />
-              </span>
-            </div>
-          </div>,
-        );
-      } else {
-        nextRows.push(
-          <div key={msg.id} className="message-group message-group--incoming">
-            <img
-              className="avatar avatar--message"
-              loading="lazy"
-              decoding="async"
-              src={otherAvatarSrc}
-              alt={otherUser?.displayName ?? "Contact"}
-            />
-            <div className="bubble-stack">
-              <div className="bubble bubble--incoming">
-                {renderMessageContent(msg.message)}
-                <span className="bubble-meta">{formatTime(msg.createdAt)}</span>
-              </div>
-            </div>
-          </div>,
-        );
-      }
+      nextRows.push(
+        <MessageRow
+          key={msg.id}
+          message={msg}
+          outgoing={msg.senderId === currentUserId}
+          avatarSrc={otherAvatarSrc}
+          avatarAlt={otherName}
+        />,
+      );
     }
 
     return nextRows;
-  }, [messages, currentUser?.id, otherAvatarSrc, otherUser?.displayName]);
+  }, [messages, currentUserId, otherAvatarSrc, otherName]);
 
   return (
     <div className="chat">

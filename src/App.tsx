@@ -1,13 +1,19 @@
 // src/App.tsx
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import ProtectedRoute from "./components/ProtectedRoute";
+import AuthProvider from "./components/AuthProvider";
 
 // Split each route into its own chunk so the login screen doesn't download
 // the chat UI (and vice versa).
-const ChatPage = lazy(() => import("./pages/ChatPage"));
+const loadChatPage = () => import("./pages/ChatPage");
+const ChatPage = lazy(loadChatPage);
 const Login = lazy(() => import("./pages/Login"));
 const Register = lazy(() => import("./pages/Register"));
+
+// The chat chunk is otherwise only requested after the session check
+// resolves. Start downloading it right away so the two happen in parallel.
+if (window.location.pathname === "/") void loadChatPage();
 
 const routeFallback = (
   <div className="auth-loading">
@@ -16,25 +22,33 @@ const routeFallback = (
 );
 
 function App() {
+  // On the login/register screens, warm the chat chunk while the user types.
+  useEffect(() => {
+    const idle = window.requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 1500));
+    idle(() => void loadChatPage());
+  }, []);
+
   return (
-    <BrowserRouter>
-      <Suspense fallback={routeFallback}>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route
-          path="/"
-          element={
-            <ProtectedRoute>
-              <ChatPage />
-            </ProtectedRoute>
-          }
-        />
-        {/* Catch-all — redirect unknown paths to home */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-      </Suspense>
-    </BrowserRouter>
+    <AuthProvider>
+      <BrowserRouter>
+        <Suspense fallback={routeFallback}>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route
+            path="/"
+            element={
+              <ProtectedRoute>
+                <ChatPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* Catch-all — redirect unknown paths to home */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+        </Suspense>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }
 

@@ -1,6 +1,8 @@
 // src/hooks/useUserSearch.ts
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../services/supabase";
+import { subscribeToFeed } from "../services/messageFeed";
+import { PROFILE_COLUMNS, mapProfile } from "../services/mappers";
 import type { Profile } from "../types/profile";
 
 export interface UserSearchResult {
@@ -9,19 +11,22 @@ export interface UserSearchResult {
   friendshipId?: string;
 }
 
-export function useUserSearch(currentUser: Profile | null) {
+export function useUserSearch(currentUserId: string | null) {
   const [searchTerm, setSearchTerm] = useState("");
+  const [refreshNonce, setRefreshNonce] = useState(0);
   const [results, setResults] = useState<UserSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [incomingRequests, setIncomingRequests] = useState<UserSearchResult[]>([]);
 
   // Search users by username
   useEffect(() => {
-    if (!currentUser || !searchTerm.trim()) {
+    if (!currentUserId || !searchTerm.trim()) {
       setResults([]);
       setLoading(false);
       return;
     }
+
+    let cancelled = false;
 
     const search = async () => {
       setLoading(true);
@@ -31,11 +36,12 @@ export function useUserSearch(currentUser: Profile | null) {
       // 1. Search profiles matching username or display_name
       const { data: profilesData } = await supabase
         .from("profiles")
-        .select("*")
-        .neq("id", currentUser.id)
+        .select(PROFILE_COLUMNS)
+        .neq("id", currentUserId)
         .or(`username.ilike.%${query}%,display_name.ilike.%${query}%`)
         .limit(10);
 
+      if (cancelled) return;
       if (!profilesData || profilesData.length === 0) {
         setResults([]);
         setLoading(false);
@@ -46,25 +52,20 @@ export function useUserSearch(currentUser: Profile | null) {
       const targetIds = profilesData.map((p) => p.id as string);
       const { data: friendships } = await supabase
         .from("friendships")
-        .select("*")
+        .select("id, sender_id, receiver_id, status")
         .or(
-          `and(sender_id.eq.${currentUser.id},receiver_id.in.(${targetIds.join(",")})),` +
-            `and(receiver_id.eq.${currentUser.id},sender_id.in.(${targetIds.join(",")}))`
+          `and(sender_id.eq.${currentUserId},receiver_id.in.(${targetIds.join(",")})),` +
+            `and(receiver_id.eq.${currentUserId},sender_id.in.(${targetIds.join(",")}))`
         );
+      if (cancelled) return;
 
       const searchResults: UserSearchResult[] = profilesData.map((row) => {
-        const profile: Profile = {
-          id: row.id as string,
-          username: row.username as string,
-          displayName: row.display_name as string,
-          avatarUrl: row.avatar_url as string | null,
-          createdAt: row.created_at as string,
-        };
+        const profile = mapProfile(row);
 
         const f = friendships?.find(
           (item) =>
-            (item.sender_id === currentUser.id && item.receiver_id === profile.id) ||
-            (item.receiver_id === currentUser.id && item.sender_id === profile.id)
+            (item.sender_id === currentUserId && item.receiver_id === profile.id) ||
+            (item.receiver_id === currentUserId && item.sender_id === profile.id)
         );
 
         let status: UserSearchResult["friendshipStatus"] = "none";
@@ -72,7 +73,7 @@ export function useUserSearch(currentUser: Profile | null) {
           if (f.status === "accepted") {
             status = "accepted";
           } else if (f.status === "pending") {
-            status = f.sender_id === currentUser.id ? "pending_sent" : "pending_received";
+            status = f.sender_id === currentUserId ? "pending_sent" : "pending_received";
           }
         }
 
@@ -84,56 +85,69 @@ export function useUserSearch(currentUser: Profile | null) {
     };
 
     const timer = setTimeout(search, 300);
-    return () => clearTimeout(timer);
-  }, [searchTerm, currentUser]);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchTerm, currentUserId, refreshNonce]);
 
   // Fetch incoming friend requests for badge / tab
   const fetchIncomingRequests = useCallback(async () => {
-    if (!currentUser) return;
+    if (!currentUserId) return;
 
     const { data: pending } = await supabase
       .from("friendships")
-      .select("*, sender:profiles!friendships_sender_id_fkey(*)")
-      .eq("receiver_id", currentUser.id)
+      .select(`id, sender:profiles!friendships_sender_id_fkey(${PROFILE_COLUMNS})`)
+      .eq("receiver_id", currentUserId)
       .eq("status", "pending");
 
     if (pending) {
       const formatted: UserSearchResult[] = pending.map((item) => {
-        const p = item.sender as Record<string, unknown>;
+        const p = item.sender as unknown as Record<string, unknown>;
         return {
-          profile: {
-            id: p.id as string,
-            username: p.username as string,
-            displayName: p.display_name as string,
-            avatarUrl: p.avatar_url as string | null,
-            createdAt: p.created_at as string,
-          },
+          profile: mapProfile(p),
           friendshipStatus: "pending_received",
           friendshipId: item.id,
         };
       });
       setIncomingRequests(formatted);
     }
-  }, [currentUser]);
+  }, [currentUserId]);
 
   useEffect(() => {
     void fetchIncomingRequests();
-  }, [fetchIncomingRequests]);
+    if (!currentUserId) return;
+    // Keep the request badge live instead of only loading it once.
+    return subscribeToFeed(currentUserId, (event) => {
+      if (event.type === "friendship") void fetchIncomingRequests();
+    });
+  }, [currentUserId, fetchIncomingRequests]);
 
   // Actions: Send, Accept, Cancel Request
   const sendFriendRequest = async (targetId: string) => {
-    if (!currentUser) return;
+    if (!currentUserId) return;
+    // Reflect the change immediately; the refresh below confirms it.
+    setResults((prev) =>
+      prev.map((r) =>
+        r.profile.id === targetId ? { ...r, friendshipStatus: "pending_sent" } : r
+      )
+    );
     await supabase.from("friendships").insert({
-      sender_id: currentUser.id,
+      sender_id: currentUserId,
       receiver_id: targetId,
       status: "pending",
     });
-    setSearchTerm((prev) => prev); // trigger re-search
-    fetchIncomingRequests();
+    setRefreshNonce((n) => n + 1);
   };
 
   const acceptFriendRequest = async (friendshipId?: string, senderId?: string) => {
-    if (!currentUser) return;
+    if (!currentUserId) return;
+    setResults((prev) =>
+      prev.map((r) =>
+        r.profile.id === senderId ? { ...r, friendshipStatus: "accepted" } : r
+      )
+    );
+    setIncomingRequests((prev) => prev.filter((r) => r.profile.id !== senderId));
     if (friendshipId) {
       await supabase
         .from("friendships")
@@ -144,10 +158,10 @@ export function useUserSearch(currentUser: Profile | null) {
         .from("friendships")
         .update({ status: "accepted" })
         .eq("sender_id", senderId)
-        .eq("receiver_id", currentUser.id);
+        .eq("receiver_id", currentUserId);
     }
-    setSearchTerm((prev) => prev);
-    fetchIncomingRequests();
+    setRefreshNonce((n) => n + 1);
+    void fetchIncomingRequests();
   };
 
   return {
