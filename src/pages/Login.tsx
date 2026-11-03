@@ -1,11 +1,14 @@
 // src/pages/Login.tsx
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 
 function Login() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState("");
+  // Set by Register after a successful sign-up.
+  const registeredEmail = (useLocation().state as { registeredEmail?: string } | null)
+    ?.registeredEmail;
+  const [email, setEmail] = useState(registeredEmail ?? "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -13,6 +16,12 @@ function Login() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (!email.trim() || !password) {
+      setError("Enter your email and password.");
+      return;
+    }
+
     setLoading(true);
 
     const { error: authError } = await supabase.auth.signInWithPassword({
@@ -52,7 +61,17 @@ function Login() {
 
         <p className="auth-subtitle">Welcome back. Sign in to continue</p>
 
-        {error && <div className="auth-error">{error}</div>}
+        {registeredEmail && !error && (
+          <div className="auth-notice" role="status">
+            Account created! Sign in to start chatting.
+          </div>
+        )}
+
+        {error && (
+          <div className="auth-error" role="alert">
+            {error}
+          </div>
+        )}
 
         <form className="auth-form" onSubmit={handleSubmit} noValidate>
           <div className="auth-field">
@@ -68,6 +87,7 @@ function Login() {
               onChange={(e) => setEmail(e.target.value)}
               required
               autoComplete="email"
+              autoFocus={!registeredEmail}
             />
           </div>
 
@@ -84,6 +104,7 @@ function Login() {
               onChange={(e) => setPassword(e.target.value)}
               required
               autoComplete="current-password"
+              autoFocus={!!registeredEmail}
             />
           </div>
 
@@ -93,7 +114,7 @@ function Login() {
             type="submit"
             disabled={loading}
           >
-            {loading ? "Signing in…" : "Login"}
+            {loading ? "Signing in…" : "Sign in"}
           </button>
         </form>
 

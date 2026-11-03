@@ -1,5 +1,5 @@
 // src/components/Sidebar.tsx
-import { memo, useState, useRef, useEffect } from "react";
+import { memo, useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { avatarFor } from "../services/mappers";
@@ -17,10 +17,17 @@ interface SidebarProps {
   onSelectUser: (user: Profile) => void;
 }
 
-function formatTime(iso?: string): string {
+// Time for today, "Yesterday", weekday within a week, otherwise a short date.
+function formatListTime(iso?: string): string {
   if (!iso) return "";
   const date = new Date(iso);
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const now = new Date();
+  const dayStart = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const diffDays = Math.round((dayStart(now) - dayStart(date)) / 86_400_000);
+  if (diffDays <= 0) return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays < 7) return date.toLocaleDateString([], { weekday: "short" });
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
 function Sidebar({
@@ -34,6 +41,7 @@ function Sidebar({
   const navigate = useNavigate();
   const [showSearch, setShowSearch] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
 
   const {
     searchTerm,
@@ -45,25 +53,28 @@ function Sidebar({
     acceptFriendRequest,
   } = useUserSearch(currentUserId);
 
-  const currentInitial = currentUser?.displayName?.[0]?.toUpperCase() ?? "M";
+  const closeSearch = useCallback(() => {
+    setShowSearch(false);
+    setSearchTerm("");
+  }, [setSearchTerm]);
 
-  // Auto-close search when clicking outside search container
+  // Auto-close search when clicking outside the search container. The toggle
+  // button is excluded so it can close the panel itself without reopening it.
   useEffect(() => {
+    if (!showSearch) return;
     const handleClickOutside = (e: MouseEvent) => {
-      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
-        setShowSearch(false);
-        setSearchTerm("");
+      const target = e.target as Node;
+      if (
+        searchRef.current &&
+        !searchRef.current.contains(target) &&
+        !toggleRef.current?.contains(target)
+      ) {
+        closeSearch();
       }
     };
-
-    if (showSearch) {
-      document.addEventListener("mousedown", handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [showSearch, setSearchTerm]);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showSearch, closeSearch]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -76,13 +87,16 @@ function Sidebar({
       <div className="sidebar-header">
         <h1 className="sidebar-title">Messages</h1>
         <button
+          ref={toggleRef}
           className={`icon-button${showSearch ? " icon-button--active" : ""}`}
-          onClick={() => {
-            setShowSearch(!showSearch);
-            if (showSearch) setSearchTerm("");
-          }}
+          onClick={() => (showSearch ? closeSearch() : setShowSearch(true))}
           title={showSearch ? "Close user search" : "Find friends by username"}
-          aria-label="Search users"
+          aria-label={
+            incomingRequests.length > 0
+              ? `Find friends (${incomingRequests.length} pending requests)`
+              : "Find friends"
+          }
+          aria-expanded={showSearch}
         >
           <svg
             width="20"
@@ -117,9 +131,13 @@ function Sidebar({
           <input
             className="sidebar-search-input"
             type="text"
-            placeholder="Search by username..."
+            placeholder="Find friends by username…"
+            aria-label="Find friends by username"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") closeSearch();
+            }}
             autoFocus
           />
 
@@ -176,8 +194,8 @@ function Sidebar({
                     <div key={profile.id} className="search-row">
                       <div className="search-row-person">
                         <img
-                      loading="lazy"
-                      decoding="async"
+                          loading="lazy"
+                          decoding="async"
                           className="avatar search-row-avatar"
                           src={avatarSrc}
                           alt={profile.displayName}
@@ -215,8 +233,7 @@ function Sidebar({
                           className="pill-btn pill-btn--muted"
                           onClick={() => {
                             onSelectUser(profile);
-                            setShowSearch(false);
-                            setSearchTerm("");
+                            closeSearch();
                           }}
                         >
                           Message
@@ -236,8 +253,16 @@ function Sidebar({
           <div className="conversation-empty">Loading conversations…</div>
         ) : conversations.length === 0 ? (
           <div className="conversation-empty">
-            No conversations yet. Click the search icon above to find friends by
-            username!
+            <p>No conversations yet.</p>
+            {!showSearch && (
+              <button
+                type="button"
+                className="pill-btn pill-btn--solid conversation-empty-cta"
+                onClick={() => setShowSearch(true)}
+              >
+                Find friends
+              </button>
+            )}
           </div>
         ) : (
           conversations.map(({ profile, lastMessage }) => {
@@ -245,46 +270,47 @@ function Sidebar({
             const avatarSrc = avatarFor(profile);
 
             return (
-              <div
+              <button
+                type="button"
                 key={profile.id}
                 className={`conversation-item ${
                   isSelected ? "conversation-item--selected" : ""
                 }`}
+                aria-current={isSelected ? "true" : undefined}
                 onClick={() => onSelectUser(profile)}
                 // Start loading the thread on hover/touch so it's usually
                 // ready by the time the click lands.
                 onPointerEnter={() => prefetchThread(currentUserId, profile.id)}
                 onTouchStart={() => prefetchThread(currentUserId, profile.id)}
               >
-                <div className="avatar-wrapper">
+                <span className="avatar-wrapper">
                   <img
-                      loading="lazy"
-                      decoding="async"
+                    loading="lazy"
+                    decoding="async"
                     className="avatar"
                     src={avatarSrc}
-                    alt={profile.displayName}
+                    alt=""
                   />
-                  <span className="online-dot" />
-                </div>
-                <div className="conversation-info">
-                  <div className="conversation-top">
+                </span>
+                <span className="conversation-info">
+                  <span className="conversation-top">
                     <span className="conversation-name">
                       {profile.displayName}{" "}
                       <span className="heart">💜</span>
                     </span>
                     {lastMessage && (
                       <span className="conversation-time">
-                        {formatTime(lastMessage.createdAt)}
+                        {formatListTime(lastMessage.createdAt)}
                       </span>
                     )}
-                  </div>
-                  <p className="conversation-preview">
+                  </span>
+                  <span className="conversation-preview">
                     {lastMessage
-                      ? lastMessage.message
+                      ? `${lastMessage.senderId === currentUserId ? "You: " : ""}${lastMessage.message}`
                       : "Start a conversation…"}
-                  </p>
-                </div>
-              </div>
+                  </span>
+                </span>
+              </button>
             );
           })
         )}
@@ -292,7 +318,11 @@ function Sidebar({
 
       {/* Footer with current user info + logout */}
       <div className="sidebar-footer">
-        <div className="footer-avatar">{currentInitial}</div>
+        {currentUser ? (
+          <img className="avatar footer-avatar" src={avatarFor(currentUser)} alt="" />
+        ) : (
+          <div className="footer-avatar" />
+        )}
         <span className="footer-name">
           {currentUser?.displayName ?? "You"}
         </span>

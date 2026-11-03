@@ -28,16 +28,30 @@ function Header({
   const displayName = otherUser?.displayName ?? "Contact";
   const avatarSrc = avatarFor(otherUser);
 
-  // Close dropdown when clicking outside
+  // Close dropdown on outside click or Escape. The toggle button lives inside
+  // menuRef, so clicking it doesn't close-then-reopen the menu.
   useEffect(() => {
+    if (!showMenu) return;
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setShowMenu(false);
       }
     };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowMenu(false);
+    };
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [showMenu]);
+
+  const closeSearch = () => {
+    setShowSearch(false);
+    onSearchChange("");
+  };
 
   const handleLogout = async () => {
     setShowMenu(false);
@@ -82,10 +96,9 @@ function Header({
           <span className="chat-header-name">
             {displayName} <span className="heart">💜</span>
           </span>
-          <span className="chat-header-status">
-            <span className="online-dot online-dot--inline" />
-            Online
-          </span>
+          {otherUser && (
+            <span className="chat-header-status">@{otherUser.username}</span>
+          )}
         </div>
       </div>
 
@@ -94,9 +107,13 @@ function Header({
           <input
             className="chat-header-search-input"
             type="text"
-            placeholder="Search in chat..."
+            placeholder="Search in chat…"
+            aria-label="Search messages"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") closeSearch();
+            }}
             autoFocus
           />
         </div>
@@ -106,10 +123,8 @@ function Header({
         <button
           className={`icon-button${showSearch ? " icon-button--active" : ""}`}
           aria-label="Search"
-          onClick={() => {
-            setShowSearch(!showSearch);
-            if (showSearch) onSearchChange("");
-          }}
+          aria-pressed={showSearch}
+          onClick={() => (showSearch ? closeSearch() : setShowSearch(true))}
           title="Search messages"
         >
           <svg
@@ -135,44 +150,53 @@ function Header({
           </svg>
         </button>
 
-        <button
-          className={`icon-button${showMenu ? " icon-button--active" : ""}`}
-          aria-label="More options"
-          onClick={() => setShowMenu(!showMenu)}
-          title="More options"
-        >
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
+        <div className="menu-anchor" ref={menuRef}>
+          <button
+            className={`icon-button${showMenu ? " icon-button--active" : ""}`}
+            aria-label="More options"
+            aria-haspopup="menu"
+            aria-expanded={showMenu}
+            onClick={() => setShowMenu((open) => !open)}
+            title="More options"
           >
-            <circle cx="12" cy="5" r="1.6" fill="currentColor" />
-            <circle cx="12" cy="12" r="1.6" fill="currentColor" />
-            <circle cx="12" cy="19" r="1.6" fill="currentColor" />
-          </svg>
-        </button>
-
-        {showMenu && (
-          <div ref={menuRef} className="dropdown-menu">
-            <button
-              className="dropdown-item dropdown-item--danger"
-              onClick={() => {
-                setShowMenu(false);
-                if (window.confirm("Clear all message history with this user?")) {
-                  onClearHistory();
-                }
-              }}
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
             >
-              Clear Chat History
-            </button>
-            <div className="dropdown-divider" />
-            <button className="dropdown-item" onClick={handleLogout}>
-              Log Out
-            </button>
-          </div>
-        )}
+              <circle cx="12" cy="5" r="1.6" fill="currentColor" />
+              <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+              <circle cx="12" cy="19" r="1.6" fill="currentColor" />
+            </svg>
+          </button>
+  
+          {showMenu && (
+            <div className="dropdown-menu" role="menu">
+              <button
+                role="menuitem"
+                className="dropdown-item dropdown-item--danger"
+                onClick={() => {
+                  setShowMenu(false);
+                  if (
+                    window.confirm(
+                      `Delete all messages with ${displayName}? This can't be undone.`,
+                    )
+                  ) {
+                    onClearHistory();
+                  }
+                }}
+              >
+                Clear Chat History
+              </button>
+              <div className="dropdown-divider" />
+              <button role="menuitem" className="dropdown-item" onClick={handleLogout}>
+                Log Out
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );

@@ -77,7 +77,7 @@ function Register() {
 
     // 3. Sign out so user logs in cleanly
     await supabase.auth.signOut();
-    navigate("/login");
+    navigate("/login", { state: { registeredEmail: email } });
   };
 
   return (
@@ -104,7 +104,11 @@ function Register() {
 
         <p className="auth-subtitle">Create your account to get started</p>
 
-        {error && <div className="auth-error">{error}</div>}
+        {error && (
+          <div className="auth-error" role="alert">
+            {error}
+          </div>
+        )}
 
         <form className="auth-form" onSubmit={handleSubmit} noValidate>
           <div className="auth-field">

@@ -32,6 +32,8 @@ function ChatPage() {
   const [mobileConversationOpen, setMobileConversationOpen] = useState(false);
 
   const handleSelectUser = useCallback((user: Profile) => {
+    // An in-chat search belongs to the conversation it was typed in.
+    setSearchQuery("");
     setSelectedUser(user);
     setMobileConversationOpen(true);
   }, []);
@@ -102,25 +104,55 @@ function ChatPage() {
         onSelectUser={handleSelectUser}
       />
       <div className="main-panel">
-        <Header
-          otherUser={selectedUser}
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          onClearHistory={clearHistory}
-          onBack={handleBack}
-        />
-        {messagesError && (
-          <div className="chat-error" role="alert">
-            {messagesError}
+        {selectedUser ? (
+          <>
+            <Header
+              key={selectedUser.id}
+              otherUser={selectedUser}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              onClearHistory={clearHistory}
+              onBack={handleBack}
+            />
+            {messagesError && (
+              <div className="chat-error" role="alert">
+                {messagesError}
+              </div>
+            )}
+            <Chat
+              messages={filteredMessages}
+              loading={messagesLoading}
+              currentUserId={userId}
+              otherUser={selectedUser}
+              searchQuery={deferredSearchQuery}
+              onSend={sendMessage}
+            />
+          </>
+        ) : (
+          <div className="chat-empty-state">
+            {convsLoading ? (
+              <div className="auth-spinner" />
+            ) : (
+              <>
+                <div className="sidebar-icon chat-empty-state-icon">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path
+                      d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"
+                      fill="white"
+                      fillOpacity="0.9"
+                    />
+                  </svg>
+                </div>
+                <h2>{conversations.length ? "Pick a conversation" : "No conversations yet"}</h2>
+                <p>
+                  {conversations.length
+                    ? "Choose someone from the list to start chatting."
+                    : "Use the search button in the sidebar to find friends by username."}
+                </p>
+              </>
+            )}
           </div>
         )}
-        <Chat
-          messages={filteredMessages}
-          loading={messagesLoading}
-          currentUserId={userId}
-          otherUser={selectedUser}
-          onSend={sendMessage}
-        />
       </div>
     </div>
   );

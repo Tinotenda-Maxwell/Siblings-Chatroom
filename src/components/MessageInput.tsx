@@ -1,15 +1,17 @@
 // src/components/MessageInput.tsx
-import { useState, useRef, useEffect, type KeyboardEvent } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, type KeyboardEvent } from "react";
 
 interface MessageInputProps {
   onSend: (text: string) => void | Promise<void>;
   disabled?: boolean;
+  placeholder?: string;
 }
 
 const EMOJI_LIST = ["😃", "💜", "🎉", "🥰", "🙌", "❤️", "👍", "🔥", "✨", "😊"];
 const MAX_SOURCE_BYTES = 20 * 1024 * 1024; // original file, before compression
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024; // 2 MB — images are inlined as data URLs
 const MAX_DIMENSION = 1280;
+const MAX_INPUT_HEIGHT = 140; // px; the textarea scrolls beyond this
 
 function readAsDataURL(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -50,43 +52,71 @@ async function encodeImage(file: File): Promise<Blob> {
   }
 }
 
-function MessageInput({ onSend, disabled = false }: MessageInputProps) {
+function MessageInput({
+  onSend,
+  disabled = false,
+  placeholder = "Type a message…",
+}: MessageInputProps) {
   const [text, setText] = useState("");
   const [showEmojis, setShowEmojis] = useState(false);
-  const [sending, setSending] = useState(false);
+  const [attaching, setAttaching] = useState(false);
   const emojiRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Grow the textarea with its content, up to MAX_INPUT_HEIGHT.
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, MAX_INPUT_HEIGHT)}px`;
+  }, [text]);
 
   const handleSend = async () => {
     const trimmed = text.trim();
-    if (!trimmed || sending || disabled) return;
+    if (!trimmed || disabled) return;
 
+    // Sends are optimistic, so the field stays enabled and focused — the
+    // user can keep typing while the previous message is confirmed.
     setText("");
     setShowEmojis(false);
-    setSending(true);
+    textareaRef.current?.focus();
     try {
       await onSend(trimmed);
     } catch {
       // Restore the draft so a failed send doesn't lose the message.
-      setText(trimmed);
-    } finally {
-      setSending(false);
+      setText((current) => (current ? current : trimmed));
     }
   };
 
-  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Enter sends; Shift+Enter inserts a newline. Ignore Enter while an IME
+    // composition is active so confirming a candidate doesn't send.
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       void handleSend();
+    } else if (e.key === "Escape" && showEmojis) {
+      setShowEmojis(false);
     }
   };
 
+  // Insert at the caret rather than always appending.
   const addEmoji = (emoji: string) => {
-    setText((prev) => prev + emoji);
+    const el = textareaRef.current;
+    const start = el?.selectionStart ?? text.length;
+    const end = el?.selectionEnd ?? text.length;
+    setText(text.slice(0, start) + emoji + text.slice(end));
+    requestAnimationFrame(() => {
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(start + emoji.length, start + emoji.length);
+    });
   };
 
-  // Close emoji picker on click outside
+  // Close emoji picker on click outside. The toggle button lives inside
+  // emojiRef, so clicking it doesn't close-then-reopen the picker.
   useEffect(() => {
+    if (!showEmojis) return;
     const handleClickOutside = (e: MouseEvent) => {
       if (emojiRef.current && !emojiRef.current.contains(e.target as Node)) {
         setShowEmojis(false);
@@ -94,7 +124,7 @@ function MessageInput({ onSend, disabled = false }: MessageInputProps) {
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  }, [showEmojis]);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -110,22 +140,27 @@ function MessageInput({ onSend, disabled = false }: MessageInputProps) {
       return;
     }
 
-    const encoded = await encodeImage(file);
-    if (encoded.size > MAX_IMAGE_BYTES) {
-      window.alert("That image is too large — please choose one under 2 MB.");
-      return;
-    }
+    setAttaching(true);
+    try {
+      const encoded = await encodeImage(file);
+      if (encoded.size > MAX_IMAGE_BYTES) {
+        window.alert("That image is too large — please choose one under 2 MB.");
+        return;
+      }
 
-    const dataUrl = await readAsDataURL(encoded);
-    // Failures are surfaced by the chat's error banner.
-    Promise.resolve(onSend(`[Image: ${file.name}] (${dataUrl})`)).catch(() => {});
+      const dataUrl = await readAsDataURL(encoded);
+      // Failures are surfaced by the chat's error banner.
+      Promise.resolve(onSend(`[Image: ${file.name}] (${dataUrl})`)).catch(() => {});
+    } finally {
+      setAttaching(false);
+    }
   };
 
-  const canSend = !disabled && !sending && text.trim().length > 0;
+  const canSend = !disabled && text.trim().length > 0;
 
   return (
     <div className="message-input-bar">
-      {/* Hidden file input for attachment / plus button */}
+      {/* Hidden file input for the attachment button */}
       <input
         type="file"
         accept="image/*"
@@ -134,114 +169,99 @@ function MessageInput({ onSend, disabled = false }: MessageInputProps) {
         style={{ display: "none" }}
       />
 
-      {/* Emoji Picker Popover */}
-      {showEmojis && (
-        <div ref={emojiRef} className="emoji-popover">
-          {EMOJI_LIST.map((emoji) => (
-            <button
-              key={emoji}
-              type="button"
-              className="emoji-item"
-              onClick={() => addEmoji(emoji)}
-            >
-              {emoji}
-            </button>
-          ))}
-        </div>
-      )}
-
       <button
         className="round-button round-button--plus"
         type="button"
-        aria-label="Add attachment"
+        aria-label="Attach image"
         onClick={() => fileInputRef.current?.click()}
-        disabled={disabled}
-        title="Add image"
+        disabled={disabled || attaching}
+        title={attaching ? "Preparing image…" : "Attach image"}
       >
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path
-            d="M12 5v14M5 12h14"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-          />
-        </svg>
+        {attaching ? (
+          <span className="auth-spinner auth-spinner--tiny" />
+        ) : (
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M12 5v14M5 12h14"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+          </svg>
+        )}
       </button>
 
-      <input
+      <textarea
         id="message-input"
+        ref={textareaRef}
         className="message-input"
-        type="text"
-        placeholder="Type a message..."
+        rows={1}
+        placeholder={placeholder}
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={handleKeyDown}
-        disabled={disabled || sending}
+        disabled={disabled}
         autoComplete="off"
+        aria-label="Message"
       />
 
-      <button
-        className="icon-button"
-        type="button"
-        aria-label="Emoji"
-        onClick={() => setShowEmojis(!showEmojis)}
-        title="Insert emoji"
-      >
-        <svg
-          width="20"
-          height="20"
-          viewBox="0 0 24 24"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8" />
-          <circle cx="9" cy="10" r="1" fill="currentColor" />
-          <circle cx="15" cy="10" r="1" fill="currentColor" />
-          <path
-            d="M8.5 14.5c1 1.2 2.2 1.8 3.5 1.8s2.5-.6 3.5-1.8"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-          />
-        </svg>
-      </button>
+      <div className="emoji-anchor" ref={emojiRef}>
+        {showEmojis && (
+          <div className="emoji-popover" role="listbox" aria-label="Emoji">
+            {EMOJI_LIST.map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                className="emoji-item"
+                onClick={() => addEmoji(emoji)}
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        )}
 
-      <button
-        className="icon-button"
-        type="button"
-        aria-label="Attach image"
-        onClick={() => fileInputRef.current?.click()}
-        disabled={disabled}
-        title="Attach image"
-      >
-        <svg
-          width="20"
-          height="20"
-          viewBox="0 0 24 24"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
+        <button
+          className={`icon-button${showEmojis ? " icon-button--active" : ""}`}
+          type="button"
+          aria-label="Emoji"
+          aria-expanded={showEmojis}
+          onClick={() => setShowEmojis((open) => !open)}
+          disabled={disabled}
+          title="Insert emoji"
         >
-          <path
-            d="M21 10.5l-8.4 8.4a4.5 4.5 0 01-6.36-6.36l8.4-8.4a3 3 0 014.24 4.24l-8.4 8.4a1.5 1.5 0 01-2.12-2.12l7.77-7.77"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8" />
+            <circle cx="9" cy="10" r="1" fill="currentColor" />
+            <circle cx="15" cy="10" r="1" fill="currentColor" />
+            <path
+              d="M8.5 14.5c1 1.2 2.2 1.8 3.5 1.8s2.5-.6 3.5-1.8"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
+      </div>
 
       <button
         className="round-button round-button--send"
         type="button"
         aria-label="Send message"
-        onClick={handleSend}
+        title="Send (Enter)"
+        onClick={() => void handleSend()}
         disabled={!canSend}
       >
         <svg

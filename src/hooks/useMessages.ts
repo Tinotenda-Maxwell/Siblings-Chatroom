@@ -10,6 +10,9 @@ import type { Profile } from "../types/profile";
 const INITIAL_PAGE_SIZE = 100;
 const OPTIMISTIC_PREFIX = "optimistic-";
 
+/** True while a sent message is still waiting for the server to confirm it. */
+export const isPending = (message: Message) => message.id.startsWith(OPTIMISTIC_PREFIX);
+
 // ---------------------------------------------------------------------------
 // Thread store: messages per conversation, shared across mounts so switching
 // back to a conversation renders instantly while it revalidates in the
