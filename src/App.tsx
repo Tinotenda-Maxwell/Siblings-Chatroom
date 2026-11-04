@@ -1,5 +1,5 @@
 // src/App.tsx
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AuthProvider from "./components/AuthProvider";
@@ -22,12 +22,6 @@ const routeFallback = (
 );
 
 function App() {
-  // On the login/register screens, warm the chat chunk while the user types.
-  useEffect(() => {
-    const idle = window.requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 1500));
-    idle(() => void loadChatPage());
-  }, []);
-
   return (
     <AuthProvider>
       <BrowserRouter>
