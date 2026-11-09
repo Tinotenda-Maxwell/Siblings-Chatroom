@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useSyncExternalStore } from "react";
 import { supabase } from "../services/supabase";
 import { subscribeToFeed } from "../services/messageFeed";
-import { MESSAGE_COLUMNS, mapMessage, readCache, writeCache } from "../services/mappers";
+import { MESSAGE_COLUMNS, mapMessage, onCachesCleared, readCache, writeCache } from "../services/mappers";
 import type { Message } from "../types/message";
 import type { Profile } from "../types/profile";
 
@@ -48,6 +48,15 @@ function persistDirtyThreads() {
   }
   dirty.clear();
 }
+
+// On sign-out, forget cached threads and cancel any pending write so a
+// debounced flush can't put the previous user's messages back in storage.
+onCachesCleared(() => {
+  clearTimeout(persistTimer);
+  persistTimer = undefined;
+  dirty.clear();
+  threads.clear();
+});
 
 function getThread(key: string | null) {
   if (!key) return undefined;

@@ -67,7 +67,15 @@ export function writeCache(key: string, value: unknown) {
   }
 }
 
+// In-memory caches register here so signing out drops them too.
+const clearListeners = new Set<() => void>();
+
+export function onCachesCleared(listener: () => void) {
+  clearListeners.add(listener);
+}
+
 export function clearCaches() {
+  clearListeners.forEach((listener) => listener());
   try {
     for (let i = localStorage.length - 1; i >= 0; i--) {
       const key = localStorage.key(i);
