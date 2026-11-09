@@ -3,11 +3,16 @@ import { useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { clearCaches } from "../services/mappers";
 import { SessionContext } from "../hooks/useSession";
+import { readStoredSession } from "../services/storedSession";
 
 // Resolves the auth session once for the whole app so routes don't each
 // call getSession() and wait on it in sequence.
 function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<Session | null | undefined>(undefined);
+  const [session, setSession] = useState<Session | null | undefined>(
+    // Optimistically start from the persisted session (if any) so the chat
+    // renders immediately; undefined still means "unknown, show spinner".
+    readStoredSession,
+  );
 
   useEffect(() => {
     let cancelled = false;
