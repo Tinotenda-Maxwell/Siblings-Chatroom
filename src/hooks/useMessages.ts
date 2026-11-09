@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useSyncExternalStore } from "react";
 import { supabase } from "../services/supabase";
 import { subscribeToFeed } from "../services/messageFeed";
-import { MESSAGE_COLUMNS, mapMessage } from "../services/mappers";
+import { MESSAGE_COLUMNS, mapMessage, readCache, writeCache } from "../services/mappers";
 import type { Message } from "../types/message";
 import type { Profile } from "../types/profile";
 
@@ -26,13 +26,46 @@ const inflight = new Map<string, Promise<void>>();
 
 const threadKey = (me: string, peer: string) => `${me}:${peer}`;
 
+// Threads are also persisted to localStorage so that after a reload the open
+// conversation renders immediately instead of waiting on the network. Only
+// the newest messages are kept, and very large bodies (inline images are
+// base64 data URLs) are skipped so the cache stays small; the background
+// revalidation fills them back in.
+const PERSISTED_MESSAGES = 50;
+const MAX_PERSISTED_LENGTH = 2000;
+const PERSIST_DELAY_MS = 500;
+const storageKey = (key: string) => `sibling-chat:thread:${key}`;
+const dirty = new Set<string>();
+let persistTimer: ReturnType<typeof setTimeout> | undefined;
+
+function persistDirtyThreads() {
+  persistTimer = undefined;
+  for (const key of dirty) {
+    const recent = (threads.get(key) ?? [])
+      .filter((m) => !isPending(m) && m.message.length <= MAX_PERSISTED_LENGTH)
+      .slice(-PERSISTED_MESSAGES);
+    writeCache(storageKey(key), recent);
+  }
+  dirty.clear();
+}
+
 function getThread(key: string | null) {
-  return key ? threads.get(key) : undefined;
+  if (!key) return undefined;
+  let thread = threads.get(key);
+  if (thread === undefined) {
+    // Hydrate once from storage; the Map then keeps the snapshot stable.
+    const stored = readCache<Message[]>(storageKey(key));
+    if (stored) threads.set(key, (thread = stored));
+  }
+  return thread;
 }
 
 function setThread(key: string, messages: Message[]) {
   threads.set(key, messages);
   threadListeners.get(key)?.forEach((notify) => notify());
+  // Batch writes so a burst of realtime events costs one serialisation.
+  dirty.add(key);
+  persistTimer ??= setTimeout(persistDirtyThreads, PERSIST_DELAY_MS);
 }
 
 function updateThread(key: string, fn: (prev: Message[]) => Message[]) {
